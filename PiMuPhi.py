@@ -11,10 +11,24 @@ class PiMuPhi:
     start = 0
     slices = 512
     
+    min_b = 3
+    max_b = 13
+    
     test_on_startup = False
 
     spec_raw = 0
     spectrum = []
+    
+    testspec = { 0:0, 1:0, 2:0, 3:0, 4:0, 5:0}
+    
+    multipliers = {
+        0: (0, 0.1, 1),
+        1: (1, 0, 0.0),
+        2: (0, 0.7, 0.08),
+        3: (1, 1, 1),
+        4: (1, 0, 0.0),
+        5: (1, 0, 0.0)
+    }
 
     def __init__(self):
         self.pa = pyaudio.PyAudio()
@@ -39,41 +53,38 @@ class PiMuPhi:
         self.spec_proc = list(map(lambda f: np.sqrt(f.real**2 + f.imag**2), spec_raw))
 
     def get_permutation(self, b, m, t):
+        #self.testspec[perm_val] += 1
         if(b > t and t > m):
-            return 0
-        if(b > m and m > t):
-            return 1
-        if(t > b and b > m):
-            return 2
-        if(t > m and m > b):
-            return 3
-        if(m > b and b > t):
-            return 4
-        if(m > t and t > b):
-            return 5
+            mult = self.multipliers[0]
+            delta = (self.max_b - (b - t))/self.max_b 
+            return (mult[0] + delta * 0.2, mult[1], mult[2])
+        elif(b > m and m > t):
+            mult = self.multipliers[1]
+            delta = (self.max_b - (b - m))/self.max_b
+            return (mult[0], mult[1], mult[2] + delta * 0.3)
+        elif(t > b and b > m):
+            mult = self.multipliers[2]
+            delta = (self.max_b - (t - b))/self.max_b
+            return (mult[0] + delta * 0.3, mult[1], mult[2] + delta * 0.3)
+        elif(t > m and m > b):
+            return self.multipliers[3]
+        elif(m > b and b > t):
+            return self.multipliers[4]
+        elif(m > t and t > b):
+            return self.multipliers[5]
+        else:
+            return self.multipliers[3]
         
     def clampval(self, n):
-		if n < 0:
-			return 0
-		if n > 255:
-			return 255
+		n = 0 if n < 0 else n
+		n = 255 if n > 255 else n
 		return n
     
     def bright_conv(self, n):
-        if n < 1:
-            n = 1
-        if n > 13:
-            n = 13
-        brightness = 255 * ((n - 1)/12)
+        n = self.min_b if n < self.min_b else n
+        n = self.max_b if n > self.max_b else n
+        brightness = 255 * ((n - self.min_b)/(self.max_b - self.min_b))
         return brightness
-    
-    def mult_conv(self, n):
-        if n < 1:
-            n = 1
-        if n > 13:
-            n = 13
-        multiplier = (n - 1)/12
-        return multiplier
         
     def setcol(self, r, g, b):
 		self.pi.set_PWM_dutycycle(23, 255 - self.clampval(r))
@@ -108,28 +119,27 @@ class PiMuPhi:
                 self.spectrum = self.read_audio()
                 self.fast_fourier_transform()
                 
-                bass_val = sum(self.spec_proc[10:172])/162
-                mid_val = sum(self.spec_proc[172:400])/228
-                treb_val = sum(self.spec_proc[400:])/112
+                bass_val = sum(self.spec_proc[10:172])/150
+                mid_val = sum(self.spec_proc[172:400])/80
+                treb_val = sum(self.spec_proc[400:])/260
+                
+                mult = self.get_permutation(bass_val, mid_val, treb_val)
                 
                 p_val = self.bright_conv(bass_val)
                 
-                r_mult = self.mult_conv(treb_val)
-                g_mult = self.mult_conv(mid_val)
-                b_mult = self.mult_conv(bass_val)
+                r_proc = p_val * mult[0]
+                g_proc = p_val * mult[1]
+                b_proc = p_val * mult[2]
                 
-                self.setcol(
-                    p_val * r_mult , 
-                    p_val * g_mult, 
-                    p_val * b_mult)
+                self.setcol(r_proc, g_proc, b_proc)
 
-                print(self.get_permutation(bass_val, mid_val, treb_val))
-
-                    
-                #print bass_val, mid_val, treb_val
+                print bass_val, mid_val, treb_val
+                
+                sleep(0.001)
                 
 
         except KeyboardInterrupt:
+            print self.testspec
             self.pa.close() 
 
 if __name__ == "__main__":

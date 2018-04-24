@@ -37,6 +37,20 @@ class PiMuPhi:
     def fast_fourier_transform(self):
         spec_raw = np.fft.fft(self.spectrum[self.start:self.start + self.slices]) 
         self.spec_proc = list(map(lambda f: np.sqrt(f.real**2 + f.imag**2), spec_raw))
+
+    def get_permutation(self, b, m, t):
+        if(b > t and t > m):
+            return 0
+        if(b > m and m > t):
+            return 1
+        if(t > b and b > m):
+            return 2
+        if(t > m and m > b):
+            return 3
+        if(m > b and b > t):
+            return 4
+        if(m > t and t > b):
+            return 5
         
     def clampval(self, n):
 		if n < 0:
@@ -94,9 +108,9 @@ class PiMuPhi:
                 self.spectrum = self.read_audio()
                 self.fast_fourier_transform()
                 
-                bass_val = sum(self.spec_proc[10:172])/200
-                mid_val = sum(self.spec_proc[172:400])/60
-                treb_val = sum(self.spec_proc[400:])/300
+                bass_val = sum(self.spec_proc[10:172])/162
+                mid_val = sum(self.spec_proc[172:400])/228
+                treb_val = sum(self.spec_proc[400:])/112
                 
                 p_val = self.bright_conv(bass_val)
                 
@@ -108,6 +122,9 @@ class PiMuPhi:
                     p_val * r_mult , 
                     p_val * g_mult, 
                     p_val * b_mult)
+
+                print(self.get_permutation(bass_val, mid_val, treb_val))
+
                     
                 #print bass_val, mid_val, treb_val
                 

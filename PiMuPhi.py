@@ -3,11 +3,13 @@ import pyaudio
 import math
 import pigpio
 from time import sleep, time
+import os
 
 class PiMuPhi:
     
     color_change_enabled = True
     intensity_change_enabled = True
+    test_on_startup = True
     
     current_index = 0
     change_threshold = 50
@@ -43,8 +45,6 @@ class PiMuPhi:
     avg_intensity_slow = 0
     
     loop_delay = 0.0
-    
-    test_on_startup = False
 
     spec_raw = 0
     spectrum = []
@@ -157,8 +157,9 @@ class PiMuPhi:
 
     def run(self):
         try:
+            os.system('cls' if os.name == 'nt' else 'clear')
+            print("Welcome to PiMuPhi")
             if self.test_on_startup:
-                print("Welcome to PiMuPhi")
                 print("Starting initial test.")
                 print("Testing red.")
                 self.setcol(255, 0, 0)

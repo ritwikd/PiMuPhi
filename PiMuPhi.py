@@ -9,18 +9,18 @@ class PiMuPhi:
     
     color_change_enabled = True
     intensity_change_enabled = True
-    test_on_startup = True
+    test_on_startup = False
     
     current_index = 0
     change_threshold = 50
     
     sound_format = pyaudio.paFloat32
-    chunk = 256
+    chunk = 128
     start = 0
     slices = 100
     
-    min_b = 1.5
-    max_b = 13
+    min_b = 50 #original: 1.5
+    max_b = 2500
     
     
     bb_vals = [0] * 128
@@ -41,10 +41,15 @@ class PiMuPhi:
     t_vals = [0] * 10
     avg_lvl_treble = 0
     
-    dc_vals = [0] * 25
+    dc_vals = [0] * 10
     avg_intensity_slow = 0
     
-    loop_delay = 0.0
+    sorted_spec_vals = [0] * 5
+    sorted_spec_avg = 0
+    
+    total_averages = 0
+    
+    loop_delay = 0.00
 
     spec_raw = 0
     spectrum = []
@@ -73,21 +78,37 @@ class PiMuPhi:
 
     def get_color(self, t, i):
         
-        base_colors = [
-            [0.05, 0.05, 0.95],
-            [0.70, 0.05, 0.85],
-            [0.89, 0.05, 0.05]
-        ]
+        base_col = [[1, 0, 0], [0, 1.0, 0], [0, 0.0, 1]]
         
-        base_col = [0, 0, 1]
+        final_col = [0,0,0]
         
-        base_col[0] += (self.avg_rti) * 5.0
+        treb_fac = (self.avg_lvl_treble/ self.total_averages) * 0.75
+        mid_fac = (self.avg_lvl_mid / self.total_averages) * 0.6
+        bass_fac = (self.avg_intensity_fast / self.total_averages) * 0.75
         
-        base_col[1] += (self.avg_rmi) * 3.0
+        #~ if mid_fac > treb_fac * 0.25 or mid_fac > bass_fac * 0.25:
+            #~ mid_fac *= 2.5
+            #~ treb_fac *= 0.25
+            #~ bass_fac *= 0.25
+        #~ else:
+            #~ if treb_fac > bass_fac * 1.0:
+                #~ bass_fac *= 0.15
+                #~ mid_fac *= 1.5
+            #~ elif bass_fac > treb_fac * 0.8:
+                #~ treb_fac *= 0.6
+                #~ mid_fac *= 1.25
+                
+        if treb_fac > bass_fac * 0.5:
+            treb_fac *= 1.25
+            mid_fac *= 1.5
+            bass_fac *= 0.1
         
-        base_col[2] -= ((self.avg_rmi + self.avg_rti)) * 4.0
         
-        return self.normalize_color(base_col)
+        final_col  = [sum(x) for x in zip(final_col, [e * treb_fac for e in base_col[0]])]
+        final_col  = [sum(x) for x in zip(final_col, [e * mid_fac for e in base_col[1]])]
+        final_col  = [sum(x) for x in zip(final_col, [e * bass_fac for e in base_col[2]])]
+        
+        return self.normalize_color(final_col)
         
         #return self.normalize_color(base_colors[self.current_index])
     
@@ -103,7 +124,7 @@ class PiMuPhi:
         
         return col
     
-    def get_running_avg(self, bb, intensity, t, m):
+    def get_running_avg(self, bb, intensity, t, m, sorted_spec):
         for i in range(len(self.i_vals) - 1):
             self.i_vals[i] = self.i_vals[i + 1]
         self.i_vals[-1] = intensity
@@ -138,6 +159,13 @@ class PiMuPhi:
             self.rmi_vals[i] = self.rmi_vals[i + 1]
         self.rmi_vals[-1] = m/i
         self.avg_rmi = sum(self.rmi_vals)/len(self.rmi_vals)
+
+        for i in range(len(self.sorted_spec_vals) - 1):
+            self.sorted_spec_vals[i] = self.sorted_spec_vals[i + 1]
+        self.sorted_spec_vals[-1] = sorted_spec
+        self.sorted_spec_avg = sum(self.sorted_spec_vals)/len(self.sorted_spec_vals)
+        
+        self.total_averages = self.avg_lvl_treble + self.avg_lvl_mid + self.avg_intensity_fast
         
     def normalize_brightness(self, n):
         n = 0 if n < 0 else n
@@ -148,6 +176,7 @@ class PiMuPhi:
         n = self.min_b if n < self.min_b else n
         n = self.max_b if n > self.max_b else n
         brightness = 255 * ((n - self.min_b)/(self.max_b - self.min_b))
+        #if brightness > 155: brightness *=0.65
         return self.normalize_brightness(brightness)
         
     def setcol(self, r, g, b):
@@ -184,14 +213,22 @@ class PiMuPhi:
                 self.spectrum = self.read_audio()
                 self.fast_fourier_transform()
                 
+                sorted_spec = sorted(self.spec_proc)
+                sss = sum(sorted_spec[50:])          
                 beat_bass = self.spec_proc[0] + self.spec_proc[1]
+                os.system('cls' if os.name == 'nt' else 'clear')
+                whole_spec = sum(self.spec_proc) + 0.001
+                if whole_spec < 0.1: whole_spec = 0.1
+                whole_spec = (math.log(whole_spec, 1.5) - 10) * 10
+                whole_spec = 0.1 if whole_spec < 0.1 else whole_spec
+                #print(whole_spec)
                 
+                #print('\t'.join(list(map(lambda q: str(round(q)), self.spec_proc[:20]))))
                 intensity = round(sum(self.spec_proc[:25])/20) + 0.001
                 midrange = round(sum(self.spec_proc[25:70])/45) + 0.001
                 treble = round(sum(self.spec_proc[70:])/30) + 0.001
                 
-                self.get_running_avg(beat_bass, intensity, treble, midrange)
-                self.b_max = self.avg_intensity_slow * 1.5
+                self.get_running_avg(beat_bass, intensity, treble, midrange, sss)
                 
                 if self.avg_beat_bass < self.change_threshold/2:
                     self.change_threshold -= 5
@@ -205,14 +242,16 @@ class PiMuPhi:
                 color = self.get_color(treble, intensity)
                 color = color if self.color_change_enabled else [1,1,1] 
                 
-                brightness = self.get_brightness(self.avg_intensity_fast)
+                brightness = self.get_brightness(self.sorted_spec_avg)
                 brightness = brightness if self.intensity_change_enabled else 255
                 
                 r_proc = brightness * color[0]
                 g_proc = brightness * color[1]
                 b_proc = brightness * color[2]
-                #if (beat_bass > self.change_threshold):
-                 #   print(beat_bass, self.change_threshold)
+                    
+                if r_proc < 0: r_proc = 0
+                if g_proc < 0: g_proc = 0
+                if b_proc < 0: b_proc = 0
                 
                 self.setcol(r_proc, g_proc, b_proc)
                 
